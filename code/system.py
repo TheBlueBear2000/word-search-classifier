@@ -12,6 +12,7 @@ from typing import List
 import numpy as np
 from utils import utils
 from utils.utils import Puzzle
+from math import sqrt
 
 # The required maximum number of dimensions for the feature vectors.
 N_DIMENSIONS = 20
@@ -43,6 +44,62 @@ def load_puzzle_feature_vectors(image_dir: str, puzzles: List[Puzzle]) -> np.nda
     return utils.load_puzzle_feature_vectors(image_dir, puzzles)
 
 
+# THIS FUNCTION WAS TAKEN FROM https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
+def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 50, fill = '█', printEnd = "\r"):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+        printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
+    """
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+    filledLength = int(length * iteration // total)
+    bar = fill * filledLength + '-' * (length - filledLength)
+    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
+    # Print New Line on Complete
+    if iteration == total: 
+        print()
+
+def knnClassifierMinimisedDimensions(features, validation_dataset, training_dataset, k=23):
+    # training_dataset is a list of tuples that contain a 2d array bitmap of the image, alongside the actual class of the data
+    # validation_dataset also follows this format
+    # features is a list of tuples that contain the (x,y) coordinates of features that should be computed
+    # returns a score between 1 and 0 of how accurate classifications were (1 is 100% accurate, 0 is 0%)
+    
+    # Using euclidean distance (may change this to be cosine later)
+    
+    
+    successes = 0
+    for input_data in validation_dataset:
+        neighbours = {
+            "distances": [],
+            "classes": []
+        }
+        # Individual calculation for a single piece of input data
+        for training_data in training_dataset:
+            squared_total = 0
+            for feature in features:
+                squared_total += (input_data[0][feature] - training_data[0][feature]) ** 2
+            total = sqrt(squared_total)
+            if len(neighbours["distances"]) < k: # populate initial k elements
+                neighbours["distances"].append(total)
+                neighbours["classes"].append(training_data[1])
+            elif total < max(neighbours["distances"]):  # only replace elements if the new distance fits
+                neighbour_index = neighbours["distances"].index(max(neighbours["distances"]))
+                neighbours["distances"][neighbour_index] = total
+                neighbours["classes"][neighbour_index] = training_data[1]
+        # Estimate the class and if it is correct then increment successes
+        estimated_class = max(set(neighbours["classes"]), key=neighbours["classes"].count)
+        successes += estimated_class == input_data[1] # is 1 if true and 0 if false so only increments if true
+
+    return successes / len(validation_dataset)
+
 def reduce_dimensions(data: np.ndarray, model: dict) -> np.ndarray:
     """Reduce the dimensionality of a set of feature vectors down to N_DIMENSIONS.
 
@@ -52,9 +109,7 @@ def reduce_dimensions(data: np.ndarray, model: dict) -> np.ndarray:
     dimensions. Note, the `model` dictionary is provided as an argument so that
     you can pass information from the training stage, e.g. if using a dimensionality
     reduction technique that requires training, e.g. PCA.
-
-    The dummy implementation below simply returns the first N_DIMENSIONS columns.
-
+    
     Args:
         data (np.ndarray): The feature vectors to reduce.
         model (dict): A dictionary storing the model data that may be needed.
@@ -62,9 +117,35 @@ def reduce_dimensions(data: np.ndarray, model: dict) -> np.ndarray:
     Returns:
         np.ndarray: The reduced feature vectors.
     """
-
-    reduced_data = data[:, 0:N_DIMENSIONS]
-    return reduced_data
+    
+    print(data.size)
+    print(data.shape)
+    print(len(data[0]))
+    
+    # Single K fold - could implement full K-fold system later
+    training_dataset = [(data, label) for data, label in zip(data, model["labels_train"])]
+    TRAINING_SPLIT = 0.2
+    validation_dataset = training_dataset[:int(TRAINING_SPLIT * len(training_dataset))]
+    training_dataset = training_dataset[int(TRAINING_SPLIT * len(training_dataset)):]
+    
+    
+    # Using forward selection to identify best features
+    reduced_dimensions = []
+    for feature_number in range(N_DIMENSIONS):
+        highest_score = 0
+        best_new_feature = -1
+        # find the new best feature to add by checking success from current best features + new ones
+        for feature in range(len(data[0])):
+            printProgressBar(feature, len(data[0]), prefix = f'{feature_number}/{N_DIMENSIONS}Progress:', suffix = 'Complete', length = 50)
+            feature_success = knnClassifierMinimisedDimensions(reduced_dimensions + [feature], validation_dataset, training_dataset)
+            if feature_success > highest_score:
+                highest_score = feature_success
+                best_new_feature = feature
+        reduced_dimensions.append(best_new_feature)
+    
+    model["reduced_feature_indexes"] = reduced_dimensions
+    #reduced_dimensions = data[:, 0:N_DIMENSIONS] # default implementation
+    return data[:, reduced_dimensions]
 
 
 def process_training_data(fvectors_train: np.ndarray, labels_train: np.ndarray) -> dict:
@@ -119,7 +200,10 @@ def classify_squares(fvectors_test: np.ndarray, model: dict) -> List[str]:
     Returns:
         List[str]: A list of classifier labels, i.e. one label per input feature vector.
     """
-    return ["E"] * fvectors_test.shape[0]
+    
+    
+    
+    # return ["E"] * fvectors_test.shape[0] # Default implementation
 
 
 def find_words(labels: np.ndarray, words: List[str], model: dict) -> List[tuple]:

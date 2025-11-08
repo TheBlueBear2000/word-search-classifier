@@ -203,6 +203,8 @@ def classify_squares(fvectors_test: np.ndarray, model: dict) -> List[str]:
     
     
     
+    
+    
     # return ["E"] * fvectors_test.shape[0] # Default implementation
 
 
